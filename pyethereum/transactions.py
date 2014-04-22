@@ -86,6 +86,13 @@ class Transaction(object):
         return contract(*args[1:])
 
 
+    @classmethod
+    def contract(*args):
+        sys.stderr.write("Deprecated method. Use pyethereum.transactions.contract "+
+                         "instead of pyethereum.transactions.Transaction.contract\n")
+        return contract(*args[1:])
+
+
 def contract(nonce, endowment, gasprice, startgas, code, v=0, r=0, s=0):
     tx = Transaction(nonce, endowment, gasprice, startgas, '', code)
     tx.v, tx.r, tx.s = v, r, s
@@ -99,4 +106,4 @@ def cast_transaction_args_from_rlp_decoded(nonce, value, gasprice, startgas, to,
 
 
 def transaction_from_rlp_encoded(data):
-    return Transaction(cast_transaction_args_from_rlp_decoded(rlp.decode(data)))
+    return Transaction(*cast_transaction_args_from_rlp_decoded(*rlp.decode(data)))
