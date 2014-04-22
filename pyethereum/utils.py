@@ -3,7 +3,6 @@ from bitcoin import privtopub
 import struct
 import os
 import sys
-import errno
 
 
 def sha3(seed):
@@ -136,15 +135,6 @@ def print_func_call(ignore_first_arg=False, max_call_number=100):
     return inner
 
 
-def mkdir_p(path):
-    try:
-        os.makedirs(path)
-    except OSError as e:
-        if e.errno == errno.EEXIST and os.path.isdir(path):
-            pass
-        else:
-            raise
-
 
 def ensure_get_eth_dir():
     ethdirs = {
@@ -155,7 +145,8 @@ def ensure_get_eth_dir():
     }
     eth_dir = ethdirs.get(sys.platform, '~/.pyethereum')
     eth_dir = os.path.expanduser(os.path.normpath(eth_dir))
-    mkdir_p(eth_dir)
+    if not os.path.exists(eth_dir) or not os.path.isdir(eth_dir):
+        os.makedirs(eth_dir)
     return eth_dir
 
 
@@ -164,3 +155,4 @@ STATEDB_DIR = os.path.join(ensure_get_eth_dir(), 'statedb')
 
 def get_db_path():
     return STATEDB_DIR
+
