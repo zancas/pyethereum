@@ -2,12 +2,19 @@ import rlp
 import re
 from transactions import Transaction
 from trie import Trie
+from trie import DB
+from trie import BLANK_NODE
 from utils import big_endian_to_int as decode_int
 from utils import int_to_big_endian as encode_int
-from utils import sha3, get_db_path
+from utils import sha3
+from utils import STATEDB_DIR
+from utils import recursive_int_to_big_endian
 import utils
 import os
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 '''
 An account consists of [nonce, balance, code, storage]
@@ -18,54 +25,49 @@ BALANCE_INDEX = 1
 CODE_INDEX = 2
 STORAGE_INDEX = 3
 
+def cast_block_header_from_rlp_decoded(prevhash, uncles_root, coinbase, state,
+                                       transactions_root, difficulty, timestamp, extradata, nonce):
+    coinbase = coinbase.encode('hex')
+    difficulty = decode_int(difficulty)
+    timestamp = decode_int(timestamp)
+    nonce = decode_int(nonce)
+    return prevhash, uncles_root, coinbase, state, transactions_root, \
+        difficulty, timestamp, extradata, nonce
+
 
 class Block(object):
 
-    def __init__(self, data=None):
-
+    def __init__(self, header, transaction_list, uncles, validate=True):
         self.reward = 10 ** 18
         self.gas_consumed = 0
         self.gaslimit = 1000000  # for now
 
-        if not data:
-            self.number = 0
-            self.prevhash = ''
-            self.uncles_root = ''
-            self.coinbase = '0' * 40
-            self.state = Trie(get_db_path())
-            self.transactions_root = ''
-            self.transactions = []
-            self.uncles = []
-            self.difficulty = 2 ** 23
-            self.timestamp = 0
-            self.extradata = ''
-            self.nonce = 0
-            return
+        # FIXME: block header sent by PoC4.3 nodes has no "number"
+        self.number = 0
+        self.prevhash = header[0]
+        self.uncles_root = header[1]
+        self.coinbase = header[2]
+        self.state = Trie(STATEDB_DIR, header[3])
+        self.transactions_root = header[4]
+        self.difficulty = header[5]
+        self.timestamp = header[6]
+        self.extradata = header[7]
+        self.nonce = header[8]
 
-        if re.match('^[0-9a-fA-F]*$', data):
-            data = data.decode('hex')
+        self.transactions = [Transaction(*x) for x in transaction_list]
+        self.uncles = uncles
 
-        header,  transaction_list, self.uncles = rlp.decode(data)
-        self.number = decode_int(header[0])
-        self.prevhash = header[1]
-        self.uncles_root = header[2]
-        self.coinbase = header[3].encode('hex')
-        self.state = Trie(get_db_path(), header[4])
-        self.transactions_root = header[5]
-        self.difficulty = decode_int(header[6])
-        self.timestamp = decode_int(header[7])
-        self.extradata = header[8]
-        self.nonce = decode_int(header[9])
-        self.transactions = [Transaction(x) for x in transaction_list]
+        logger.debug('New Block(%s)' % self.hash().encode('hex'))
 
-        # Verifications
-        if self.state.root != '' and self.state.db.get(self.state.root) == '':
-            raise Exception("State Merkle root not found in database!")
-        if sha3(rlp.encode(transaction_list)) != self.transactions_root:
-            raise Exception("Transaction list root hash does not match!")
-        if sha3(rlp.encode(self.uncles)) != self.uncles_root:
-            raise Exception("Uncle root hash does not match!")
-        # TODO: check POW
+        if validate is True:
+            # Verifications
+            if sha3(rlp.encode(recursive_int_to_big_endian(transaction_list))) != self.transactions_root:
+                raise Exception("Transaction list root hash does not match!")
+            if sha3(rlp.encode(self.uncles)) != self.uncles_root:
+                raise Exception("Uncle root hash does not match!")
+            if self.state.root != BLANK_NODE and self.state.db.get(self.state.root) == '':
+                raise Exception("State Merkle root not found in database!")
+            # TODO: check POW
 
     # _get_acct_item(bin or hex, int) -> bin
     def _get_acct_item(self, address, index):
@@ -171,7 +173,8 @@ class Block(object):
     # constructor assuming no verification failures
     def serialize(self):
         txlist = [x.serialize() for x in self.transactions]
-        header = [encode_int(self.number),
+        header = [
+                  #encode_int(self.number),
                   self.prevhash,
                   sha3(rlp.encode(self.uncles)),
                   self.coinbase.decode('hex'),
@@ -220,7 +223,8 @@ class Block(object):
 
 
 def genesis(initial_alloc):
-    block = Block()
+    header = ['', '', '0' * 40, BLANK_NODE, '', 2 ** 23, 0, '', 0]
+    block = Block(header, transaction_list=[], uncles=[], validate=False)
     for addr in initial_alloc:
         block.set_balance(addr, initial_alloc[addr])
     return block
